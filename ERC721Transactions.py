@@ -15,8 +15,6 @@ def get_erc721_transfer_events(w3, from_block, to_block):
     
     erc721_contract = w3.eth.contract( abi=ERC721_ABI)
 
-    transfers_pd = pd.DataFrame(columns=['address', 'blockHash', 'blockNumber', 'from_address', 'to_address', 'token_id', 'logIndex', 'transactionHash', 'transactionIndex'])
-
     transfer_data_list = []
     for log in logs:
         contract_address = log['address']
@@ -40,7 +38,8 @@ def get_erc721_transfer_events(w3, from_block, to_block):
             transfer_data_list.append(transfer_data)
         except:  # Make an exception - if it doesnt ignore and continue looking over different logs. 
             continue
-        
+    
+    transfers_pd = pd.DataFrame(columns=['address', 'blockHash', 'blockNumber', 'from_address', 'to_address', 'token_id', 'logIndex', 'transactionHash', 'transactionIndex'])    
     transfers_pd = pd.concat([pd.DataFrame(data=transfer_data_list)])
     transfers_pd.to_csv('New.csv')
     return transfers_pd
