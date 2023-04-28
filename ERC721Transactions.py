@@ -6,15 +6,13 @@ from web3.exceptions import ABIFunctionNotFound
 ERC721_ABI = [{'inputs': [{'internalType': "bytes4",'name': "interfaceId",'type': "bytes4",},],'name': "supportsInterface",'outputs': [ {'internalType': "bool",'name': "",'type': "bool", },],'stateMutability': "view",'type': "function", },]
 PROXY_ABI = [{"inputs":[],"stateMutability":"nonpayable","type":"constructor"},{"stateMutability":"payable","type":"fallback"},{"inputs":[],"name":"implementation","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"stateMutability":"payable","type":"receive"}]
 
-#Retrieving All Transfer Signature 'Transfer' events. This picks up ERC20 *AND* ERC721 transfer events. We must therefore filter down. 
 def get_all_transfer_events(w3, from_block, to_block):
     """
-    Gets all transfer events fromt the For to To block. Requires a full node and chunking (to be implemented) for large ranges.
+    Gets all transfer events from the from_block to the to_block.
+    Requires a full node and chunking (to be implemented) for large ranges.
     """
-    #Signature of a transfer transaction applicable to both an ERC20 and ERC721 transfer. (we later filter)
     transfer_signature = w3.keccak(text="Transfer(address,address,uint256)").hex()
 
-    # Get logs for from block to the to block  
     filter = w3.eth.filter({'fromBlock': from_block, 'toBlock': to_block, "topics": [transfer_signature]})
     logs = w3.eth.get_filter_logs(filter.filter_id)
     
@@ -33,7 +31,7 @@ def get_all_transfer_events(w3, from_block, to_block):
             transfer_events.append(transfer_obs)
         except Exception as e:
             continue
-    print(len(transfer_events), 'Transfer Events Between: ', from_block,' To ', to_block)
+    print(f"{len(transfer_events)} Transfer Events Between: {from_block} To {to_block}")
     return transfer_events
 
 def filter_NFT_compliance(transfer_events):
