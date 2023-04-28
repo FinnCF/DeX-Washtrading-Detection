@@ -1,53 +1,89 @@
 from web3 import Web3
 import pandas as pd
+from web3.exceptions import ContractLogicError
+from web3.exceptions import ABIFunctionNotFound
 
-ERC721_ABI = [{"anonymous":False,"inputs":[{"indexed":True,"internalType":"address","name":"owner","type":"address"},{"indexed":True,"internalType":"address","name":"approved","type":"address"},{"indexed":True,"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"Approval","type":"event"},{"anonymous":False,"inputs":[{"indexed":True,"internalType":"address","name":"owner","type":"address"},{"indexed":True,"internalType":"address","name":"operator","type":"address"},{"indexed":False,"internalType":"bool","name":"approved","type":"bool"}],"name":"ApprovalForAll","type":"event"},{"anonymous":False,"inputs":[{"indexed":True,"internalType":"address","name":"from","type":"address"},{"indexed":True,"internalType":"address","name":"to","type":"address"},{"indexed":True,"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"Transfer","type":"event"},{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"approve","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"balance","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"getApproved","outputs":[{"internalType":"address","name":"operator","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"operator","type":"address"}],"name":"isApprovedForAll","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"internalType":"address","name":"owner","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"safeTransferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"},{"internalType":"bytes","name":"data","type":"bytes"}],"name":"safeTransferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bool","name":"_approved","type":"bool"}],"name":"setApprovalForAll","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes4","name":"interfaceId","type":"bytes4"}],"name":"supportsInterface","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"transferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"}]
+ERC721_ABI = [{'inputs': [{'internalType': "bytes4",'name': "interfaceId",'type': "bytes4",},],'name': "supportsInterface",'outputs': [ {'internalType': "bool",'name': "",'type': "bool", },],'stateMutability': "view",'type': "function", },]
+PROXY_ABI = [{"inputs":[],"stateMutability":"nonpayable","type":"constructor"},{"stateMutability":"payable","type":"fallback"},{"inputs":[],"name":"implementation","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"stateMutability":"payable","type":"receive"}]
 
-def get_erc721_transfer_events(w3, from_block, to_block):
-
-    #Signature of transaction
-    erc721_transfer_signature = w3.keccak(text="Transfer(address,address,uint256)").hex()
-    erc721_interface_id = "0x80ac58cd"
+#Retrieving All Transfer Signature 'Transfer' events. This picks up ERC20 *AND* ERC721 transfer events. We must therefore filter down. 
+def get_all_transfer_events(w3, from_block, to_block):
+    """
+    Gets all transfer events fromt the For to To block. Requires a full node and chunking (to be implemented) for large ranges.
+    """
+    #Signature of a transfer transaction applicable to both an ERC20 and ERC721 transfer. (we later filter)
+    transfer_signature = w3.keccak(text="Transfer(address,address,uint256)").hex()
 
     # Get logs for from block to the to block  
-    filter = w3.eth.filter({'fromBlock': from_block, 'toBlock': to_block, "topics": [erc721_transfer_signature]})
+    filter = w3.eth.filter({'fromBlock': from_block, 'toBlock': to_block, "topics": [transfer_signature]})
     logs = w3.eth.get_filter_logs(filter.filter_id)
     
-    erc721_contract = w3.eth.contract( abi=ERC721_ABI)
-
-    transfer_data_list = []
+    transfer_events = []
     for log in logs:
-        contract_address = log['address']
-        erc721_contract = w3.eth.contract(address=contract_address, abi=ERC721_ABI)
-
-        # Check if the contract supports ERC-721 interface by making a call. 
         try:
-            erc721_contract.functions.supportsInterface(erc721_interface_id).call()
-            from_address = Web3.to_checksum_address(log['topics'][1][-20:])
-            to_address = Web3.to_checksum_address(log['topics'][2][-20:])
-            token_id = int.from_bytes(log['data'], byteorder='big')
-            transfer_data = {'address': contract_address,
+            transfer_obs = {'address': log['address'],
                             'blockHash': log['blockHash'].hex(),
                             'blockNumber': log['blockNumber'],
-                            'from_address': from_address,
-                            'to_address': to_address,
-                            'token_id': token_id,
+                            'from_address':  Web3.to_checksum_address(log['topics'][1][-20:]),
+                            'to_address': Web3.to_checksum_address(log['topics'][2][-20:]),
+                            'token_id': int(log['data'].lstrip(b'\x00').hex(), 16),
                             'logIndex': log['logIndex'],
                             'transactionHash': log['transactionHash'].hex(),
                             'transactionIndex': log['transactionIndex']}
-            transfer_data_list.append(transfer_data)
-        except:  # Make an exception - if it doesnt ignore and continue looking over different logs. 
+            transfer_events.append(transfer_obs)
+        except Exception as e:
             continue
-    
-    transfers_pd = pd.DataFrame(columns=['address', 'blockHash', 'blockNumber', 'from_address', 'to_address', 'token_id', 'logIndex', 'transactionHash', 'transactionIndex'])    
-    transfers_pd = pd.concat([pd.DataFrame(data=transfer_data_list)])
-    transfers_pd.to_csv('New.csv')
-    return transfers_pd
+    print(len(transfer_events), 'Transfer Events Between: ', from_block,' To ', to_block)
+    return transfer_events
+
+def filter_NFT_compliance(transfer_events):
+    """
+    Filters transfer events to include only those that are ERC721 compliant
+    or are proxies implementing ERC721 contracts.
+    """
+    filtered_events = []
+    for transfer_obs in transfer_events:
+        contract = w3.eth.contract(address=transfer_obs['address'], abi=ERC721_ABI)
+        if is_certainly_erc721(contract):
+            filtered_events.append(transfer_obs)
+            continue  # Skip checking for proxies if it's already an ERC721 contract
+        try:
+            # Check if the contract is a proxy
+            proxy_contract = w3.eth.contract(address=transfer_obs['address'], abi=PROXY_ABI)
+            implementation_address = proxy_contract.functions.implementation().call()
+            implementation_contract = w3.eth.contract(address=implementation_address, abi=ERC721_ABI)
+            if is_certainly_erc721(implementation_contract):
+                filtered_events.append(transfer_obs)
+        except ABIFunctionNotFound as e:
+            print(f"Error decoding function call for contract at address {transfer_obs['address']}: {e}")
+            pass  # Ignore errors and continue to next contract
+        except Exception as e:
+            print(f"Error occurred while interacting with contract at address {transfer_obs['address']}: {e}")
+            pass  # Ignore errors and continue to next contract
+
+    return filtered_events
+
+def is_certainly_erc721(contract):
+    """
+    Checks if the given contract is ERC721 compliant using the supportsInterface function.
+    """
+    erc721_interface_id = bytes.fromhex("80ac58cd")
+    try:
+        supports_erc721 = contract.functions.supportsInterface(erc721_interface_id).call()
+        print(supports_erc721)
+        return supports_erc721
+    except Exception as e:
+        #print(f"Exception occurred: {e}")
+        return False
 
 if __name__ == "__main__":
     w3 = Web3(Web3.HTTPProvider('https://mainnet.infura.io/v3/bd65e1b7072a41afa017a3f519f94e70'))
     current_block_number = w3.eth.block_number
 
-    # Scan the last 2 blocks for ERC-721 transfer events
-    erc721_transfer_events = get_erc721_transfer_events(w3, current_block_number - 1, current_block_number)
-    print("ERC-721 Transfer Events: ", erc721_transfer_events)
+    # Scan all 'Transfer' events that occured in the from - to period of blocks
+    transfer_events = get_all_transfer_events(w3, current_block_number-1, current_block_number)
+    filtered_events = filter_NFT_compliance(transfer_events)
+
+
+
+
